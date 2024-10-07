@@ -93,3 +93,14 @@ feature_importance = rf.feature_importances_
 for feature_name,importance in zip(feature_names,feature_importance):
     print(f'特征:{feature_name},重要性:{importance}')
 
+
+from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score
+precision = precision_score(test_labels, predictions,average='micro')
+recall = recall_score(test_labels, predictions,average='micro')
+accuracy = accuracy_score(test_labels, predictions)
+f1 = f1_score(test_labels, predictions,average='micro')
+print(f'模型准确率: {accuracy}')
+print(f'模型精确率: {precision}')
+print(f'模型召回率: {recall}')
+print(f'模型F1分数: {f1}')
+
