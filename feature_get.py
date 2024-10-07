@@ -82,10 +82,14 @@ train_data = final_data.iloc[:,1:-2]
 train_labels = final_data[['T2D','Complication']]
 
 from sklearn.ensemble import RandomForestClassifier
+#feature_names取每一列的名称
+feature_names = train_data.columns.tolist()
 
 rf = RandomForestClassifier(n_estimators=100, random_state=42)
 rf.fit(train_data, train_labels)
 
 feature_importance = rf.feature_importances_
 
-print(feature_importance)
+for feature_name,importance in zip(feature_names,feature_importance):
+    print(f'特征:{feature_name},重要性:{importance}')
+
