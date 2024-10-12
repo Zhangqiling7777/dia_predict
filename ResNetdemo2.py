@@ -110,12 +110,11 @@ for col in discrete_data_filled.columns:
     label_encoders[col] = le
 
 
-
 #合并处理后的数据 训练集
 final_data = pd.concat([contionuous_data, discrete_data_encoded], axis=1)
 
 #测试集
-test_final = pd.concat([test_contionuous_data, test_discrete_encoded])
+test_final = pd.concat([test_contionuous_data, test_discrete_encoded],axis=1)
 
 #特征提取
 #train_data 特征  train_labels为标签
@@ -123,6 +122,8 @@ train_data = final_data.iloc[:,1:-2]
 train_labels = final_data[['T2D']]
 test_data = test_final.iloc[:,1:-2]
 test_labels = test_final[['T2D']]   
+
+
 
 
 from sklearn.ensemble import RandomForestClassifier
@@ -221,11 +222,11 @@ def ResNet18():
 
 model = ResNet18()
 
-optimizer = optim.Adam(model.parameters(),lr=0.001)
+optimizer = optim.Adam(model.parameters(),lr=0.001,weight_decay=1e-4)
 criterion = nn.CrossEntropyLoss()
 
-train_data_tensor = torch.tensor(train_data_top100.values).float()  #2560,100
-train_labels_tensor = torch.tensor(train_labels.values).squeeze().long()  #2560,2
+train_data_tensor = torch.tensor(train_data_top100.values).float()  #3200,100
+train_labels_tensor = torch.tensor(train_labels.values).squeeze().long()  #3200,1
 train_data_reshape = train_data_tensor.reshape(-1,1,10,10)
 train_labels_reshape = train_labels_tensor.reshape(-1,1)
 
@@ -244,9 +245,9 @@ test_loader = DataLoader(test_dataset,batch_size=batch_size,shuffle=False)
 
 loss_list = []
 epochs = []
-num_epochs = 50
+num_epochs = 20
 for epoch in range(num_epochs):
-    model.eval()
+    model.train()
     running_loss = 0.0
     correct = 0
     total = 0
@@ -255,14 +256,19 @@ for epoch in range(num_epochs):
     
     
     for inputs, targets in train_loader:
-        optimizer.zero_grad()
+        #
         # 确保输入维度为 [batch_size, channels, height, width]
         #inputs = inputs.reshape(batch_size, 1, 10, 10)
+            
+        #评估模型不应该调用optimizer.zero_grad()
+        
+        optimizer.zero_grad() 
         outputs = model(inputs)
         loss = criterion(outputs, targets.squeeze())
+
         loss.backward()
         optimizer.step()
-    
+
         running_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
         total += targets.size(0)
@@ -273,11 +279,47 @@ for epoch in range(num_epochs):
         
     avg_loss= running_loss / len(train_loader)
     accuracy = (correct / total)*100
-    loss_list.append(avg_loss)
-    epochs.append(epoch)
+    # loss_list.append(avg_loss)
+    # epochs.append(epoch)
     f1 = f1_score(all_targets, all_predicted, average='weighted')
     print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f},Accuracy: {accuracy:.2f}%,F1 Score:{f1:.4f}')
-
+    
+    #保存模型
+    torch.save(model.state_dict(), f'model_epoch_{epoch+1}.pth')
+    print(f'Model saved for epoch {epoch+1}')
+    
+    # **在测试集上进行评估**
+    model.eval()  # 切换到评估模式
+    test_loss = 0.0
+    test_correct = 0
+    test_total = 0
+    test_all_targets = []
+    test_all_predicted = []
+    
+    with torch.no_grad():  # 禁用梯度计算
+        for inputs, targets in test_loader:
+            outputs = model(inputs)
+            loss = criterion(outputs, targets.squeeze())
+            
+            # 累加测试集的损失
+            test_loss += loss.item()
+            
+            # 计算测试集的预测值
+            _, predicted = torch.max(outputs.data, 1)
+            test_total += targets.size(0)
+            test_correct += (predicted == targets.squeeze()).sum().item()
+            
+            test_all_targets.extend(targets.squeeze().tolist())
+            test_all_predicted.extend(predicted.tolist())
+    
+    # 计算测试集的平均损失和准确率
+    avg_test_loss = test_loss / len(test_loader)
+    test_accuracy = (test_correct / test_total) * 100
+    test_f1 = f1_score(test_all_targets, test_all_predicted, average='weighted')
+    loss_list.append(avg_test_loss)
+    epochs.append(epoch)
+    # 打印测试结果
+    print(f'Test Loss: {avg_test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%, Test F1 Score: {test_f1:.4f}')
 import matplotlib.pyplot as plt
 plt.plot(epochs,loss_list)
 plt.show()
