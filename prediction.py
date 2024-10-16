@@ -76,7 +76,7 @@ knn_imputer = KNNImputer(n_neighbors=5)
 continuous_data_filled = knn_imputer.fit_transform(continous_data)
 continuous_data_filled = pd.DataFrame(continuous_data_filled, columns=continous_data.columns)
 
-# #测试集填充
+#测试集填充
 test_discrete = test_contact[discrete_columns]
 test_continous = test_contact.drop(columns=test_discrete)
 
@@ -126,6 +126,8 @@ final_data = pd.concat([contionuous_data, discrete_data_encoded,train_birth], ax
 #测试集
 test_final = pd.concat([test_contionuous_data, test_discrete_encoded,test_birth],axis=1)
 
+#final_data为患病数据  normal_data为未患病数据
+normal_data = final_data[final_data['T2D'] == 0]
 final_data = final_data[final_data['T2D'] == 1]
 test_final  = test_final[test_final['T2D'] == 1]
 
@@ -133,11 +135,42 @@ test_final  = test_final[test_final['T2D'] == 1]
 final_data['year'] = pd.to_datetime(final_data['date']).dt.year
 test_final['year'] = pd.to_datetime(test_final['date']).dt.year   
 
+#计算患病年龄  发病时间（year）-出生日期（f.34.0.0）
+final_data['age_at_diagnosis'] = final_data['year'] - final_data['f.34.0.0']
+test_final['age_at_diagnosis'] = test_final['year'] - test_final['f.34.0.0']
 
-final_data = final_data.drop(columns=['date','Complication'])
-test_data = test_final.drop(columns=['date','Complication'])
+#删除无用列  Complication date T2D f.34.0.0 year
+final_data.drop(columns=['date','T2D','f.34.0.0','year','Complication'],inplace=True)
+test_final.drop(columns=['date','T2D','f.34.0.0','year','Complication'],inplace=True)
+normal_data.drop(columns=['date','T2D','f.34.0.0','Complication','f.eid'],inplace=True)
+#划分数据和标签
+train_data = final_data.drop(columns=['f.eid'])
+train_label = final_data['age_at_diagnosis']
 
-#划分特征和标签
-train_data = final_data.iloc[:,1:-2]
-train_labels = final_data['year']
-print(train_data)
+test_data = test_final.drop(columns=['f.eid'])
+test_label = test_final['age_at_diagnosis']
+
+
+#使用cox模型进行患者发病时间预测
+from lifelines import CoxPHFitter
+
+#需要删除train_data中的‘age_at_diagnosis’列 与未患病的数据特征保持一致
+train_data = train_data.drop(columns=['age_at_diagnosis'])
+train_data['event_time']  = train_label
+train_data['event_occured']  = 1
+
+cph  = CoxPHFitter()
+cph.fit(train_data, duration_col='event_time', event_col='event_occured')
+cph.print_summary()
+
+# 5. 预测风险评分或发病时间
+# 使用未发病的患者数据进行预测，假设 new_data 是新的患者的身体数据
+
+predicted_risks = cph.predict_partial_hazard(normal_data)  # 输出风险评分
+print(predicted_risks)
+# from lifelines.utils import concordance_index
+
+# # 假设你有测试集
+# c_index = concordance_index(data['event_time'], -cph.predict_partial_hazard(data), data['event_occurred'])
+# print(f"Concordance Index: {c_index}")
+# # 如果需要可以使用这个风险评分来进一步判断发病的时间或概率
