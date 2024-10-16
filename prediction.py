@@ -130,7 +130,7 @@ test_final = pd.concat([test_contionuous_data, test_discrete_encoded,test_birth]
 normal_data = final_data[final_data['T2D'] == 0]
 final_data = final_data[final_data['T2D'] == 1]
 test_final  = test_final[test_final['T2D'] == 1]
-
+test_normal_data = test_final[test_final['T2D'] == 0]
 #final_data['year'] 为患者患病的时间
 final_data['year'] = pd.to_datetime(final_data['date']).dt.year
 test_final['year'] = pd.to_datetime(test_final['date']).dt.year   
@@ -142,7 +142,8 @@ test_final['age_at_diagnosis'] = test_final['year'] - test_final['f.34.0.0']
 #删除无用列  Complication date T2D f.34.0.0 year
 final_data.drop(columns=['date','T2D','f.34.0.0','year','Complication'],inplace=True)
 test_final.drop(columns=['date','T2D','f.34.0.0','year','Complication'],inplace=True)
-normal_data.drop(columns=['date','T2D','f.34.0.0','Complication','f.eid'],inplace=True)
+normal_data.drop(columns=['date','T2D','f.34.0.0','Complication','f.eid'],inplace=True)#训练集正常未患病数据
+test_normal_data.drop(columns=['date','T2D','f.34.0.0','Complication','f.eid'],inplace=True)#测试集未患病数据
 #划分数据和标签
 train_data = final_data.drop(columns=['f.eid'])
 train_label = final_data['age_at_diagnosis']
@@ -151,26 +152,53 @@ test_data = test_final.drop(columns=['f.eid'])
 test_label = test_final['age_at_diagnosis']
 
 
+#根据age_at_diagnosis对数据进行排序
+from sklearn.ensemble import RandomForestClassifier
+#feature_names取每一列的名称
+feature_names = train_data.columns.tolist()
+
+rf = RandomForestClassifier(n_estimators=100, random_state=42)
+rf.fit(train_data, train_label)
+
+feature_importance = rf.feature_importances_
+
+# for feature_name,importance in zip(feature_names,feature_importance):
+#     print(f'特征:{feature_name},重要性:{importance}')
+
+#使用重要的特征的前100名进行模型训练
+feature_importance_df = pd.DataFrame({
+    'Feature' : feature_names,
+    'Importance' : feature_importance  
+}).sort_values('Importance', ascending=False)
+
+#输出前100的特征
+top_100_features = feature_importance_df.head(100)
+#从原始数据集中提取100个特征
+train_data_top100 = train_data[top_100_features['Feature'].tolist()]
+test_data_top100 = test_data[top_100_features['Feature'].tolist()]
+
+
 #使用cox模型进行患者发病时间预测
 from lifelines import CoxPHFitter
 
 #需要删除train_data中的‘age_at_diagnosis’列 与未患病的数据特征保持一致
-train_data = train_data.drop(columns=['age_at_diagnosis'])
-train_data['event_time']  = train_label
-train_data['event_occured']  = 1
+train_data_top100 = train_data_top100.drop(columns=['age_at_diagnosis'])
+train_data_top100['event_time']  = train_label
+train_data_top100['event_occured']  = 1
 
 cph  = CoxPHFitter()
-cph.fit(train_data, duration_col='event_time', event_col='event_occured')
+cph.fit(train_data_top100, duration_col='event_time', event_col='event_occured')
 cph.print_summary()
 
 # 5. 预测风险评分或发病时间
 # 使用未发病的患者数据进行预测，假设 new_data 是新的患者的身体数据
 
-predicted_risks = cph.predict_partial_hazard(normal_data)  # 输出风险评分
-print(predicted_risks)
-# from lifelines.utils import concordance_index
 
-# # 假设你有测试集
-# c_index = concordance_index(data['event_time'], -cph.predict_partial_hazard(data), data['event_occurred'])
-# print(f"Concordance Index: {c_index}")
-# # 如果需要可以使用这个风险评分来进一步判断发病的时间或概率
+from lifelines.utils import concordance_index
+#使用测试集   test_data  test_label
+test_data_top100 = test_data_top100.drop(columns=['age_at_diagnosis'])
+test_data_top100['event_time']  = test_label
+test_data_top100['event_occurred']  = 1
+c_index = concordance_index(test_data_top100['event_time'], -cph.predict_partial_hazard(test_data_top100), test_data_top100['event_occurred'])
+print(f"Concordance Index: {c_index}")
+# 如果需要可以使用这个风险评分来进一步判断发病的时间或概率
