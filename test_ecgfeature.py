@@ -15,7 +15,8 @@ from features.ECGAvgBeat import extract_features
 
 #空数据 1019333   1052928  1194303   2752005  3985855  
 def extract_patient_id(filename):
-    return filename.split('/')[-1].split('_')[0]
+    #return filename.split('/')[-1].split('_')[0]
+    return os.path.basename(filename).split('_')[0]
 def process_ecg_file(input_file):
 
     with open(input_file,'r') as fr:
