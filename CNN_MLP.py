@@ -3,12 +3,13 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 import torchvision.models as models
 from torch.utils.data import DataLoader, Dataset
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, roc_auc_score, f1_score
+from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
 import pandas as pd
 import numpy as np
 from PIL import Image
 import os
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 
 # 加载结构化数据
@@ -20,7 +21,18 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
+# 定义超参数和模型
+param_grid = {
+    'learning_rate': [0.001, 0.0001],
+    'batch_size': [16, 32],
+    'epochs': [5, 10]
+}
 
+# 记录损失和分数
+train_losses = []
+val_accuracies = []
+val_aucs = []
+val_f1_scores = []
 
 class MultimodalDataset(Dataset):
     def __init__(self, struct_data, img_folder, transform=None):
@@ -104,68 +116,94 @@ def collate_fn(batch):
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=collate_fn)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, collate_fn=collate_fn)
 
-from tqdm import tqdm
 
+
+# 定义训练函数
 def train(model, loader, criterion, optimizer, device):
     model.train()
     running_loss = 0.0
-    # tqdm 集成在 loader 中显示批次进度
     for batch in tqdm(loader, desc="Training", leave=False):
-        if batch is None:  # 跳过无效批次
+        if batch is None:
             continue
-
         images, struct_features, labels = batch
         images, struct_features, labels = images.to(device), struct_features.to(device), labels.to(device)
 
-        # 前向传播
+        optimizer.zero_grad()
         outputs = model(images, struct_features).squeeze()
         loss = criterion(outputs, labels)
-
-        # 反向传播与优化
-        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
         running_loss += loss.item()
-
     return running_loss / len(loader)
 
+# 定义评估函数
 def evaluate(model, loader, device):
     model.eval()
     predictions, targets = [], []
     with torch.no_grad():
-        # tqdm 集成在 loader 中显示批次进度
         for batch in tqdm(loader, desc="Evaluating", leave=False):
-            if batch is None:  # 跳过无效批次
+            if batch is None:
                 continue
-
             images, struct_features, labels = batch
             images, struct_features, labels = images.to(device), struct_features.to(device), labels.to(device)
 
             outputs = model(images, struct_features).squeeze()
             predictions.extend(outputs.cpu().numpy())
             targets.extend(labels.cpu().numpy())
-
-    # 转换为0-1分类
     predictions = np.round(predictions)
     accuracy = accuracy_score(targets, predictions)
     auc = roc_auc_score(targets, predictions)
     f1 = f1_score(targets, predictions)
+    return accuracy, auc, f1, confusion_matrix(targets, predictions)
 
-    return accuracy, auc, f1
-
-
-
+# 可视化损失和分数
+def plot_metrics(train_losses, val_accuracies, val_aucs, val_f1_scores):
+    epochs = range(1, len(train_losses) + 1)
+    plt.figure(figsize=(12, 4))
+    
+    plt.subplot(1, 3, 1)
+    plt.plot(epochs, train_losses, 'b-', label='Training Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.legend()
+    
+    plt.subplot(1, 3, 2)
+    plt.plot(epochs, val_accuracies, 'g-', label='Validation Accuracy')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    
+    plt.subplot(1, 3, 3)
+    plt.plot(epochs, val_f1_scores, 'r-', label='Validation F1 Score')
+    plt.xlabel('Epochs')
+    plt.ylabel('F1 Score')
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = MultimodalModel(input_size=input_size).to(device)
 criterion = nn.BCELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-
-epochs = 5
-for epoch in range(epochs):
-    print(f"\nEpoch {epoch+1}/{epochs}")
+for epoch in range(5):  # 5可替换为param_grid的值
+    print(f"\nEpoch {epoch+1}/5")
     train_loss = train(model, train_loader, criterion, optimizer, device)
-    accuracy, auc, f1 = evaluate(model, test_loader, device)
+    accuracy, auc, f1, cm = evaluate(model, test_loader, device)
+
+    train_losses.append(train_loss)
+    val_accuracies.append(accuracy)
+    val_aucs.append(auc)
+    val_f1_scores.append(f1)
+    
     print(f"Loss: {train_loss:.4f}, Accuracy: {accuracy:.4f}, AUC: {auc:.4f}, F1 Score: {f1:.4f}")
+    
+    # 绘制混淆矩阵
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp.plot(cmap=plt.cm.Blues)
+    plt.title(f'Confusion Matrix - Epoch {epoch+1}')
+    plt.show()
+
+# 绘制损失和分数
+plot_metrics(train_losses, val_accuracies, val_aucs, val_f1_scores)
