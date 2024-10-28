@@ -90,6 +90,53 @@ class MultimodalModel(nn.Module):
         combined = torch.cat((img_features, struct_features), dim=1)
         output = self.sigmoid(self.fc(combined))
         return output
+
+# class MultimodalModel(nn.Module):
+#     def __init__(self, input_size):
+#         super(MultimodalModel, self).__init__()
+        
+#         # Image model (ResNet18 with adjusted input layer and feature extraction)
+#         self.cnn = models.resnet18(pretrained=True)
+#         self.cnn.conv1 = nn.Conv2d(3, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+#         num_features = self.cnn.fc.in_features
+#         self.cnn.fc = nn.Identity()  # Remove the final fully connected layer to use extracted features
+        
+#         # Structured data model (MLP)
+#         self.mlp = nn.Sequential(
+#             nn.Linear(input_size, 128),  # Assuming 323 input features
+#             nn.ReLU(),
+#             nn.Dropout(0.3),  # Added dropout for regularization
+#             nn.Linear(128, 64),
+#             nn.ReLU(),
+#             nn.Dropout(0.3)  # Additional dropout for MLP
+#         )
+        
+#         # Fusion layer
+#         self.fc = nn.Sequential(
+#             nn.Linear(num_features + 64, 64),  # Combine ResNet and MLP outputs
+#             nn.ReLU(),
+#             nn.Dropout(0.3),  # Dropout in fusion layer
+#             nn.Linear(64, 1)
+#         )
+        
+#         # Sigmoid for binary classification output
+#         self.sigmoid = nn.Sigmoid()
+        
+#     def forward(self, image, structured_data):
+#         # CNN feature extraction from image data
+#         cnn_features = self.cnn(image)
+        
+#         # MLP feature extraction from structured data
+#         mlp_features = self.mlp(structured_data)
+        
+#         # Concatenate CNN and MLP features
+#         combined_features = torch.cat((cnn_features, mlp_features), dim=1)
+        
+#         # Pass through fusion layer
+#         output = self.fc(combined_features)
+        
+#         # Apply sigmoid for binary classification
+#         return self.sigmoid(output)
 # 分割数据集
 # 生成训练和测试数据，保留 f.eid 列
 train_data = train_struct_data  # 只删除 T2D 和 Complication 列
